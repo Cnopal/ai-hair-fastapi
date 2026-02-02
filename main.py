@@ -88,14 +88,19 @@ def calculate_distances(key_points: Dict[str, Tuple[float, float]]) -> Dict[str,
 
 def classify_face_shape_advanced(distances: Dict[str, float]) -> Tuple[str, float]:
     """
-    Advanced face shape classification using multiple ratios.
+    Advanced face shape classification using precise facial geometry.
     Returns (face_shape, confidence)
     """
     # Calculate key ratios
-    jaw_to_forehead_ratio = distances['jaw_width'] / distances['forehead_width']
-    cheek_to_jaw_ratio = distances['cheekbone_width'] / distances['jaw_width']
-    face_length_to_width = distances['face_length'] / distances['cheekbone_width']
-    lower_to_mid_face = distances['lower_face_length'] / distances['mid_face_length']
+    jaw_width = distances['jaw_width']
+    cheekbone_width = distances['cheekbone_width']
+    forehead_width = distances['forehead_width']
+    face_length = distances['face_length']
+    
+    jaw_to_forehead = jaw_width / forehead_width
+    cheek_to_jaw = cheekbone_width / jaw_width
+    length_to_width = face_length / cheekbone_width
+    forehead_to_cheek = forehead_width / cheekbone_width
     
     # Scores for each face shape
     scores = {
@@ -107,61 +112,79 @@ def classify_face_shape_advanced(distances: Dict[str, float]) -> Tuple[str, floa
         "Oblong": 0
     }
     
-    # Oval face criteria
-    if 0.85 <= jaw_to_forehead_ratio <= 1.15:
-        scores["Oval"] += 2
-    if 1.3 <= face_length_to_width <= 1.6:
-        scores["Oval"] += 2
-    if 0.95 <= cheek_to_jaw_ratio <= 1.05:
-        scores["Oval"] += 1
+    # OBLONG - Long and narrow (length >> width)
+    if length_to_width >= 1.7:
+        scores["Oblong"] += 50
+    elif length_to_width >= 1.6:
+        scores["Oblong"] += 30
+    if 0.85 <= jaw_to_forehead <= 1.1:
+        scores["Oblong"] += 15
+    if 0.9 <= cheek_to_jaw <= 1.15:
+        scores["Oblong"] += 15
     
-    # Round face criteria
-    if 0.9 <= jaw_to_forehead_ratio <= 1.1:
-        scores["Round"] += 2
-    if 1.0 <= face_length_to_width <= 1.3:
-        scores["Round"] += 2
-    if cheek_to_jaw_ratio >= 1.0:
-        scores["Round"] += 1
+    # ROUND - Short and wide (width close to length)
+    if 0.98 <= length_to_width <= 1.2:
+        scores["Round"] += 50
+    elif 1.0 <= length_to_width <= 1.25:
+        scores["Round"] += 30
+    if 0.85 <= jaw_to_forehead <= 1.05:
+        scores["Round"] += 15
+    if 0.95 <= cheek_to_jaw <= 1.08:
+        scores["Round"] += 15
     
-    # Square face criteria
-    if 0.95 <= jaw_to_forehead_ratio <= 1.05:
-        scores["Square"] += 2
-    if face_length_to_width <= 1.3:
-        scores["Square"] += 2
-    if distances['jaw_width'] >= distances['forehead_width']:
-        scores["Square"] += 1
+    # SQUARE - Equal proportions with strong jaw
+    if 0.98 <= jaw_to_forehead <= 1.08:
+        scores["Square"] += 40
+    if length_to_width <= 1.3:
+        scores["Square"] += 30
+    if jaw_width >= forehead_width * 0.95:
+        scores["Square"] += 20
+    if 0.88 <= cheek_to_jaw <= 1.08:
+        scores["Square"] += 15
     
-    # Heart face criteria
-    if jaw_to_forehead_ratio <= 0.9:
-        scores["Heart"] += 2
-    if cheek_to_jaw_ratio >= 1.1:
-        scores["Heart"] += 2
-    if lower_to_mid_face >= 1.1:
-        scores["Heart"] += 1
+    # DIAMOND - Wide cheeks, narrow forehead and chin
+    if cheek_to_jaw >= 1.22:
+        scores["Diamond"] += 50
+    if jaw_to_forehead <= 0.8:
+        scores["Diamond"] += 40
+    if forehead_to_cheek <= 0.92:
+        scores["Diamond"] += 30
+    if 1.3 <= length_to_width <= 1.65:
+        scores["Diamond"] += 15
     
-    # Diamond face criteria
-    if cheek_to_jaw_ratio >= 1.15:
-        scores["Diamond"] += 2
-    if face_length_to_width >= 1.4:
-        scores["Diamond"] += 2
-    if jaw_to_forehead_ratio <= 0.85:
-        scores["Diamond"] += 1
+    # HEART - Wider forehead/cheeks, narrow chin (VERY STRICT)
+    if jaw_to_forehead <= 0.75:
+        scores["Heart"] += 45
+    if cheek_to_jaw >= 1.18 and cheek_to_jaw <= 1.35:
+        scores["Heart"] += 30
+    if forehead_to_cheek >= 0.95 and forehead_to_cheek <= 1.05:
+        scores["Heart"] += 25
+    if forehead_width > cheekbone_width * 0.98:
+        scores["Heart"] += 20
     
-    # Oblong face criteria
-    if face_length_to_width >= 1.6:
-        scores["Oblong"] += 2
-    if 0.9 <= jaw_to_forehead_ratio <= 1.1:
-        scores["Oblong"] += 2
-    if lower_to_mid_face >= 1.0:
-        scores["Oblong"] += 1
+    # OVAL - Balanced (default if no strong match)
+    if 1.2 <= length_to_width <= 1.6:
+        scores["Oval"] += 40
+    if 0.88 <= jaw_to_forehead <= 1.1:
+        scores["Oval"] += 35
+    if 0.95 <= cheek_to_jaw <= 1.12:
+        scores["Oval"] += 30
+    if 0.9 <= forehead_to_cheek <= 1.08:
+        scores["Oval"] += 25
+    
+    # If no strong score, award Oval as default
+    max_other_score = max([scores["Round"], scores["Square"], scores["Oblong"], scores["Diamond"], scores["Heart"]])
+    if max_other_score < 30:
+        scores["Oval"] += 60
     
     # Determine best match
     best_shape = max(scores, key=scores.get)
-    max_score = scores[best_shape]
-    total_possible = 5  # Maximum score possible
+    best_score = scores[best_shape]
     
-    # Calculate confidence percentage
-    confidence = (max_score / total_possible) * 100 if total_possible > 0 else 0
+    # Calculate confidence based on score vs total
+    total_score = sum(scores.values())
+    confidence = (best_score / total_score * 100) if total_score > 0 else 50
+    confidence = min(max(confidence, 25), 99)
     
     return best_shape, confidence
 
